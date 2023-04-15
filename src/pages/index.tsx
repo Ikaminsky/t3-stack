@@ -7,8 +7,9 @@ import { SignInButton, useUser } from "@clerk/nextjs";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import Image from "next/image";
-import { LoadingPage } from "@/components/loading";
+import { Loading, LoadingPage } from "@/components/loading";
 import React, { useState } from "react";
+import toast from "react-hot-toast";
 
 dayjs.extend(relativeTime);
 
@@ -16,12 +17,21 @@ const CreatePostWizard = () => {
   const [input, setInput] = useState<string>("");
   const ctx = api.useContext();
   const { user } = useUser();
-  const { mutate: createPost, isLoading: isPosting } = api.post.create.useMutation({
-    onSuccess: () => {
-      setInput("");
-      void ctx.post.getAll.invalidate();
-    }
-  });
+  const { mutate: createPost, isLoading: isPosting } =
+    api.post.create.useMutation({
+      onSuccess: () => {
+        setInput("");
+        void ctx.post.getAll.invalidate();
+      },
+      onError: (e) => {
+        const errorMessage = e.data?.zodError?.fieldErrors.content;
+        if (errorMessage && errorMessage[0]) {
+          toast.error(errorMessage[0]);
+        } else {
+          toast.error("Failed to post. Try again later.");
+        }
+      },
+    });
 
   if (!user) return null;
 
@@ -41,8 +51,28 @@ const CreatePostWizard = () => {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         disabled={isPosting}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (input !== "") {
+              createPost({ content: input });
+            }
+          }
+        }}
       />
-      <button onClick={() => createPost({ content: input })}>Submit</button>
+      {input !== "" && (
+        <button
+          onClick={() => createPost({ content: input })}
+          disabled={isPosting}
+        >
+          Post
+        </button>
+      )}
+      {isPosting && (
+        <div className="flex flex-col items-center justify-center">
+          <Loading size={20} />
+        </div>
+      )}
     </div>
   );
 };
@@ -59,9 +89,11 @@ const PostView = ({ post, author }: PostWithUser) => {
         height={56}
       />
       <div className="flex flex-col">
-        <div className="flex text-slate-300 gap-1">
+        <div className="flex gap-1 text-slate-300">
           <span>{`@${author.username}`}</span>
-          <span className="whitespace-pre font-thin">{`  · ${dayjs(post.createdAt).fromNow()}`}</span>
+          <span className="whitespace-pre font-thin">{`  · ${dayjs(
+            post.createdAt
+          ).fromNow()}`}</span>
         </div>
         <span>{post.content}</span>
       </div>
@@ -72,17 +104,17 @@ const PostView = ({ post, author }: PostWithUser) => {
 const Feed = () => {
   const { data, isLoading: isPostsLoading } = api.post.getAll.useQuery();
 
-  if (isPostsLoading) return <LoadingPage />
-  if (!data) return <div>Something went wrong</div>
+  if (isPostsLoading) return <LoadingPage />;
+  if (!data) return <div>Something went wrong</div>;
 
   return (
-      <div className="flex flex-col">
-        {data?.map((fullPost) => (
-          <PostView {...fullPost} key={fullPost.post.id} />
-        ))}
-      </div>
-    )
-}
+    <div className="flex flex-col">
+      {data?.map((fullPost) => (
+        <PostView {...fullPost} key={fullPost.post.id} />
+      ))}
+    </div>
+  );
+};
 
 const Home: NextPage = () => {
   const { isLoaded: isUserLoading, isSignedIn } = useUser();
